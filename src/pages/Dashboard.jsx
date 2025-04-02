@@ -15,6 +15,8 @@ import {
 } from "recharts";
 import { saveAs } from "file-saver";
 import dayjs from "dayjs";
+import { collection, getDocs, addDoc, deleteDoc, updateDoc, doc } from 'firebase/firestore';
+import { db } from '../firebase';
 
 const formatNumber = (num) => new Intl.NumberFormat().format(num);
 const getCTR = (clicks, impressions) => (!impressions ? "0%" : ((clicks / impressions) * 100).toFixed(2) + "%");
@@ -28,8 +30,38 @@ const generateTestData = () => [
 ];
 
 function Dashboard() {
-  const [data, setData] = useState(generateTestData());
+
+
+
+  const [data, setData] = useState([]);
   const [selectedRows, setSelectedRows] = useState([]);
+  const handleRowSelect = (index) => {
+    setSelectedRows((prev) =>
+      prev.includes(index)
+        ? prev.filter((i) => i !== index)
+        : [...prev, index]
+    );
+  };
+  const handleAddRow = async () => {
+    const newRow = {
+      date: dayjs().format("YYYY-MM-DD"),
+      platform: "",
+      creative: "",
+      cost: 0,
+      clicks: 0,
+      impressions: 0,
+      signups: 0,
+      comment: "",
+    };
+  
+    try {
+      const docRef = await addDoc(collection(db, "adData"), newRow);
+      setData((prev) => [...prev, { id: docRef.id, ...newRow }]);
+      console.log("✅ Firestore에 새 문서 추가됨:", docRef.id);
+    } catch (e) {
+      console.error("❌ Firestore에 새 문서 추가 실패:", e);
+    }
+  };
   const [sortConfig, setSortConfig] = useState({ key: null, direction: "asc" });
   const [editingDateIndex, setEditingDateIndex] = useState(null);
   const dateInputRef = useRef(null); // 🔧 input 참조용
@@ -38,7 +70,29 @@ function Dashboard() {
   const defaultMetrics = ["cost", "impressions", "clicks"];
   const [visibleGraphMetrics, setVisibleGraphMetrics] = useState(defaultMetrics);
   const [dateFilter, setDateFilter] = useState({ from: '', to: '' });
-    
+  
+    // 🔥 여기서부터 정확하게 추가하세요!
+    const fetchFirestoreData = async () => {
+        try {
+          const querySnapshot = await getDocs(collection(db, "adData")); // 컬렉션 이름 확인
+          const firestoreData = [];
+          querySnapshot.forEach((doc) => {
+            firestoreData.push({
+              id: doc.id,
+              ...doc.data(),
+            });
+          });
+          console.log("🔥 받아온 데이터:", firestoreData); // 콘솔 확인용
+          setData(firestoreData); // ✅ 여기서만 한 번!
+        } catch (e) {
+          console.error("❌ Firestore에서 데이터 가져오기 실패:", e);
+        }
+      };
+      
+      useEffect(() => {
+        fetchFirestoreData();
+      }, []);
+      
 
   useEffect(() => {
     function handleClickOutside(e) {
@@ -57,31 +111,60 @@ function Dashboard() {
     };
   }, [editingDateIndex]);
 
-  const handleCellChange = (key, value, index) => {
+  const handleCellChange = async (key, value, index) => {
     const updatedData = [...data];
-    updatedData[index][key] = ["cost", "revenue", "clicks", "impressions", "signups"].includes(key) ? Number(value) : value;
+    updatedData[index][key] = ["cost", "revenue", "clicks", "impressions", "signups"].includes(key)
+      ? Number(value)
+      : value;
+  
     setData(updatedData);
+  
+    // 🔥 Firestore에 저장 시도
+    try {
+      const row = updatedData[index];
+      if (row.id) {
+        const docRef = doc(db, "adData", row.id);
+        await updateDoc(docRef, { [key]: row[key] });
+        console.log(`✅ Firestore 문서 ${row.id} 업데이트됨: ${key} = ${row[key]}`);
+      } else {
+        console.warn("⚠️ 문서 ID 없음 → Firestore 업데이트 불가");
+      }
+    } catch (e) {
+      console.error("❌ Firestore 업데이트 실패:", e);
+    }
   };
-
-  const handleRowSelect = (index) => {
-    setSelectedRows((prev) => (prev.includes(index) ? prev.filter((i) => i !== index) : [...prev, index]));
-  };
-
-  const handleAddRow = () => {
-    const newRow = { date: "", platform: "", creative: "", cost: 0, clicks: 0, impressions: 0, signups: 0, comment: "" };
-    setData((prev) => [...prev, newRow]);
-  };
-
-  const handleDelete = () => {
+  
+  const handleDelete = async () => {
     if (selectedRows.length === 0) {
       alert("삭제할 데이터를 선택해주세요");
       return;
     }
-    if (window.confirm("선택한 데이터를 정말 삭제하시겠습니까?")) {
-      setData((prev) => prev.filter((_, idx) => !selectedRows.includes(idx)));
-      setSelectedRows([]);
+  
+    if (!window.confirm("선택한 데이터를 정말 삭제하시겠습니까?")) return;
+  
+    const updated = [...data];
+  
+    for (let i = 0; i < selectedRows.length; i++) {
+      const index = selectedRows[i];
+      const row = updated[index];
+  
+      // Firestore 문서 삭제 시도
+      try {
+        if (row.id) {
+          await deleteDoc(doc(db, "adData", row.id));
+          console.log(`🗑 Firestore 문서 삭제됨: ${row.id}`);
+        }
+      } catch (e) {
+        console.error(`❌ Firestore 문서 삭제 실패: ${row.id}`, e);
+      }
     }
+  
+    // 선택한 행들을 화면에서도 제거
+    const newData = updated.filter((_, idx) => !selectedRows.includes(idx));
+    setData(newData);
+    setSelectedRows([]);
   };
+  
 
   const handleSave = () => {
     setData([...data]);
@@ -105,17 +188,24 @@ function Dashboard() {
       sorted.sort((a, b) => {
         const valA = a[sortConfig.key];
         const valB = b[sortConfig.key];
-        if (typeof valA === "string") return sortConfig.direction === "asc" ? valA.localeCompare(valB) : valB.localeCompare(valA);
+        if (typeof valA === "string") {
+          return sortConfig.direction === "asc"
+            ? valA.localeCompare(valB)
+            : valB.localeCompare(valA);
+        }
         return sortConfig.direction === "asc" ? valA - valB : valB - valA;
       });
     }
+  
     return sorted.filter((d) => {
-      const date = dayjs(d.date);
+      const date = dayjs(d.date, "YYYY-MM-DD"); // 포맷 지정 중요!
       const from = dateFilter.from ? dayjs(dateFilter.from) : null;
       const to = dateFilter.to ? dayjs(dateFilter.to) : null;
-      return (!from || date.isAfter(from.subtract(1, 'day'))) && (!to || date.isBefore(to.add(1, 'day')));
+      return (!from || date.isAfter(from.subtract(1, "day"))) &&
+             (!to || date.isBefore(to.add(1, "day")));
     });
   }, [data, sortConfig, dateFilter]);
+  
 
   const groupBy = (key, dataset = filteredSortedData) => {
     const result = {};
@@ -171,6 +261,7 @@ function Dashboard() {
     >
       로그아웃
     </button>
+     
       <h1>
   <img src="/images/logo2.png" alt="BYUL Beauty Clinic Logo" className="logo" />
 </h1>
