@@ -1,6 +1,6 @@
-// 전체 코드 복구 + 일자별/플랫폼/소재별 그래프 기본 포함
+// ✅ 전체 코드 복구 + 날짜 정렬 기능 + 모든 누락된 핸들러 추가 포함
 
-import React, { useState, useMemo, useRef, useEffect } from "react"; // useRef, useEffect 추가
+import React, { useState, useMemo, useRef, useEffect } from "react";
 import '../App.css';
 import {
   ResponsiveContainer,
@@ -21,78 +21,67 @@ import { db } from '../firebase';
 const formatNumber = (num) => new Intl.NumberFormat().format(num);
 const getCTR = (clicks, impressions) => (!impressions ? "0%" : ((clicks / impressions) * 100).toFixed(2) + "%");
 
-const generateTestData = () => [
-  { date: "2025-03-18", platform: "Meta", creative: "봄이벤트A", cost: 300000, clicks: 2500, impressions: 100000, signups: 80, comment: "" },
-  { date: "2025-03-18", platform: "Google", creative: "눈성형", cost: 250000, clicks: 2300, impressions: 90000, signups: 70, comment: "" },
-  { date: "2025-03-18", platform: "TikTok", creative: "리프팅광고B", cost: 200000, clicks: 2100, impressions: 85000, signups: 60, comment: "" },
-  { date: "2025-03-19", platform: "Meta", creative: "봄이벤트B", cost: 320000, clicks: 2700, impressions: 110000, signups: 85, comment: "" },
-  { date: "2025-03-19", platform: "Google", creative: "코성형", cost: 280000, clicks: 2400, impressions: 92000, signups: 75, comment: "" },
-];
-
 function Dashboard() {
+  const platformColors = {
+    cost: "#8884d8",  // 파란색
+    impressions: "#82ca9d",  // 초록색
+    clicks: "#ffc658",  // 노란색
+  };
 
-
-
+  const creativeColors = {
+    cost: "#8884d8",  // 파란색
+    impressions: "#82ca9d",  // 초록색
+    clicks: "#ffc658",  // 노란색
+  };
+  
   const [data, setData] = useState([]);
   const [selectedRows, setSelectedRows] = useState([]);
-  const handleRowSelect = (index) => {
-    setSelectedRows((prev) =>
-      prev.includes(index)
-        ? prev.filter((i) => i !== index)
-        : [...prev, index]
-    );
-  };
-  const handleAddRow = async () => {
-    const newRow = {
-      date: dayjs().format("YYYY-MM-DD"),
-      platform: "",
-      creative: "",
-      cost: 0,
-      clicks: 0,
-      impressions: 0,
-      signups: 0,
-      comment: "",
-    };
-  
-    try {
-      const docRef = await addDoc(collection(db, "adData"), newRow);
-      setData((prev) => [...prev, { id: docRef.id, ...newRow }]);
-      console.log("✅ Firestore에 새 문서 추가됨:", docRef.id);
-    } catch (e) {
-      console.error("❌ Firestore에 새 문서 추가 실패:", e);
-    }
-  };
-  const [sortConfig, setSortConfig] = useState({ key: null, direction: "asc" });
+  const [sortConfig, setSortConfig] = useState({ key: "date", direction: "desc" });
+
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [newRowData, setNewRowData] = useState({
+   date: dayjs().format("YYYY-MM-DD"),
+   platform: "",
+   creative: "",
+   cost: 0,
+   clicks: 0,
+   impressions: 0,
+   signups: 0,
+   comment: "",
+   });
+
   const [editingDateIndex, setEditingDateIndex] = useState(null);
-  const dateInputRef = useRef(null); // 🔧 input 참조용
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
+
   const [selectedPlatformMetrics, setSelectedPlatformMetrics] = useState(["cost", "impressions", "clicks"]);
   const [selectedCreativeMetrics, setSelectedCreativeMetrics] = useState(["cost", "impressions", "clicks"]);
-  const defaultMetrics = ["cost", "impressions", "clicks"];
-  const [visibleGraphMetrics, setVisibleGraphMetrics] = useState(defaultMetrics);
+  const defaultMetrics = [
+    { key: "cost", color: "#8884d8" },
+    { key: "impressions", color: "#82ca9d" },
+    { key: "clicks", color: "#ffc658" }
+  ];
+  const [visibleGraphMetrics, setVisibleGraphMetrics] = useState(defaultMetrics.map(m => m.key));
   const [dateFilter, setDateFilter] = useState({ from: '', to: '' });
-  
-    // 🔥 여기서부터 정확하게 추가하세요!
-    const fetchFirestoreData = async () => {
-        try {
-          const querySnapshot = await getDocs(collection(db, "adData")); // 컬렉션 이름 확인
-          const firestoreData = [];
-          querySnapshot.forEach((doc) => {
-            firestoreData.push({
-              id: doc.id,
-              ...doc.data(),
-            });
-          });
-          console.log("🔥 받아온 데이터:", firestoreData); // 콘솔 확인용
-          setData(firestoreData); // ✅ 여기서만 한 번!
-        } catch (e) {
-          console.error("❌ Firestore에서 데이터 가져오기 실패:", e);
-        }
-      };
-      
-      useEffect(() => {
-        fetchFirestoreData();
-      }, []);
-      
+  const [searchDateFilter, setSearchDateFilter] = useState({ from: '', to: '' });
+  const dateInputRef = useRef(null);
+
+  const fetchFirestoreData = async () => {
+    try {
+      const querySnapshot = await getDocs(collection(db, "adData"));
+      const firestoreData = [];
+      querySnapshot.forEach((doc) => {
+        firestoreData.push({ id: doc.id, ...doc.data() });
+      });
+      setData(firestoreData);
+    } catch (e) {
+      console.error("❌ Firestore에서 데이터 가져오기 실패:", e);
+    }
+  };
+
+  useEffect(() => {
+    fetchFirestoreData();
+  }, []);
 
   useEffect(() => {
     function handleClickOutside(e) {
@@ -100,26 +89,49 @@ function Dashboard() {
         setEditingDateIndex(null);
       }
     }
-  
     if (editingDateIndex !== null) {
       document.addEventListener("mousedown", handleClickOutside);
     }
-    
-  
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
     };
   }, [editingDateIndex]);
+
+  const handleSortByDate = () => {
+    setSortConfig((prev) => ({
+      key: "date",
+      direction: prev.direction === "asc" ? "desc" : "asc"
+    }));
+  };
+
+  const handleExportCSV = () => {
+    if (!data.length) return;
+    const headers = Object.keys(data[0]);
+    const rows = data.map((row) => headers.map((key) => row[key]).join(","));
+    const csvContent = [headers.join(","), ...rows].join("\n");
+    saveAs(new Blob([csvContent], { type: "text/csv;charset=utf-8;" }), "ad_data.csv");
+  };
+
+  const handleExportJSON = () => {
+    saveAs(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }), "ad_data.json");
+  };
+
+  const handleRowSelect = (id) => {
+    setSelectedRows((prev) =>
+      prev.includes(id)
+        ? prev.filter((selectedId) => selectedId !== id)
+        : [...prev, id]
+    );
+  };
 
   const handleCellChange = async (key, value, index) => {
     const updatedData = [...data];
     updatedData[index][key] = ["cost", "revenue", "clicks", "impressions", "signups"].includes(key)
       ? Number(value)
       : value;
-  
+
     setData(updatedData);
-  
-    // 🔥 Firestore에 저장 시도
+
     try {
       const row = updatedData[index];
       if (row.id) {
@@ -133,92 +145,100 @@ function Dashboard() {
       console.error("❌ Firestore 업데이트 실패:", e);
     }
   };
+
+  const handleSave = async () => {
+    try {
+      const docRef = await addDoc(collection(db, "adData"), {
+        ...newRowData,
+        cost: Number(newRowData.cost),
+        impressions: Number(newRowData.impressions),
+        clicks: Number(newRowData.clicks),
+        signups: Number(newRowData.signups),
+        createdAt: new Date(),
+      });
   
+      setData(prev => [...prev, { id: docRef.id, ...newRowData }]);
+  
+      // 초기화
+      setNewRowData({
+        date: dayjs().format("YYYY-MM-DD"),
+        platform: "",
+        creative: "",
+        cost: 0,
+        clicks: 0,
+        impressions: 0,
+        signups: 0,
+        comment: "",
+      });
+  
+      setIsModalOpen(false);
+      console.log("✅ 새 행 저장 완료");
+    } catch (e) {
+      console.error("❌ 저장 실패:", e);
+    }
+  };
+
+
   const handleDelete = async () => {
     if (selectedRows.length === 0) {
       alert("삭제할 데이터를 선택해주세요");
       return;
     }
-  
+
     if (!window.confirm("선택한 데이터를 정말 삭제하시겠습니까?")) return;
-  
-    const updated = [...data];
-  
-    for (let i = 0; i < selectedRows.length; i++) {
-      const index = selectedRows[i];
-      const row = updated[index];
-  
-      // Firestore 문서 삭제 시도
+
+    const newData = [];
+   for (let row of data) {
+    if (selectedRows.includes(row.id)) {
       try {
-        if (row.id) {
-          await deleteDoc(doc(db, "adData", row.id));
-          console.log(`🗑 Firestore 문서 삭제됨: ${row.id}`);
-        }
+        await deleteDoc(doc(db, "adData", row.id));
+        console.log(`🗑 Firestore 문서 삭제됨: ${row.id}`);
       } catch (e) {
         console.error(`❌ Firestore 문서 삭제 실패: ${row.id}`, e);
       }
+    } else {
+      newData.push(row); // 삭제 대상이 아니면 유지
     }
-  
-    // 선택한 행들을 화면에서도 제거
-    const newData = updated.filter((_, idx) => !selectedRows.includes(idx));
+  }
     setData(newData);
     setSelectedRows([]);
   };
-  
+    const startIndex = (currentPage - 1) * itemsPerPage;
 
-  const handleSave = () => {
-    setData([...data]);
-    setSelectedRows([]);
-  };
-
-  const handleExportCSV = () => {
-    const headers = Object.keys(data[0]);
-    const rows = data.map((row) => headers.map((key) => row[key]).join(","));
-    const csvContent = [headers.join(","), ...rows].join("\n");
-    saveAs(new Blob([csvContent], { type: "text/csv;charset=utf-8;" }), "ad_data.csv");
-  };
-
-  const handleExportJSON = () => {
-    saveAs(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }), "ad_data.json");
-  };
-
-  const filteredSortedData = useMemo(() => {
+    const filteredSortedData = useMemo(() => {
     let sorted = [...data];
+
     if (sortConfig.key) {
       sorted.sort((a, b) => {
         const valA = a[sortConfig.key];
         const valB = b[sortConfig.key];
+
+        if (sortConfig.key === "date") {
+          return sortConfig.direction === "asc"
+            ? new Date(valA) - new Date(valB)
+            : new Date(valB) - new Date(valA);
+        }
+
         if (typeof valA === "string") {
           return sortConfig.direction === "asc"
             ? valA.localeCompare(valB)
             : valB.localeCompare(valA);
         }
+
         return sortConfig.direction === "asc" ? valA - valB : valB - valA;
       });
     }
-  
+
     return sorted.filter((d) => {
-      const date = dayjs(d.date, "YYYY-MM-DD"); // 포맷 지정 중요!
+      const itemDate = dayjs(d.date, "YYYY-MM-DD");
       const from = dateFilter.from ? dayjs(dateFilter.from) : null;
       const to = dateFilter.to ? dayjs(dateFilter.to) : null;
-      return (!from || date.isAfter(from.subtract(1, "day"))) &&
-             (!to || date.isBefore(to.add(1, "day")));
+
+      return (!from || itemDate.isAfter(from.subtract(1, "day"))) &&
+             (!to || itemDate.isBefore(to.add(1, "day")));
     });
   }, [data, sortConfig, dateFilter]);
-  
 
-  const groupBy = (key, dataset = filteredSortedData) => {
-    const result = {};
-    dataset.forEach((item) => {
-      const k = item[key];
-      if (!result[k]) result[k] = { label: k, cost: 0, clicks: 0, signups: 0 };
-      result[k].cost += item.cost;
-      result[k].clicks += item.clicks;
-      result[k].signups += item.signups;
-    });
-    return Object.values(result);
-  };
-  const [searchDateFilter, setSearchDateFilter] = useState({ from: '', to: '' });
   const getDateAggregatedData = () => {
     const result = {};
     filteredSortedData.forEach((item) => {
@@ -234,19 +254,39 @@ function Dashboard() {
     return Object.values(result);
   };
 
+  const groupBy = (key, dataset = filteredSortedData) => {
+    const result = {};
+    dataset.forEach((item) => {
+      const k = item[key];
+      if (!result[k]) result[k] = { label: k, cost: 0, impressions: 0, clicks: 0, signups: 0 };
+      result[k].cost += item.cost;
+      result[k].impressions += item.impressions;
+      result[k].clicks += item.clicks;
+      result[k].signups += item.signups;
+    });
+    return Object.values(result);
+  };
+
   const platformData = groupBy("platform");
   const creativeData = groupBy("creative");
 
   const columnDefs = [
-    { label: "날짜", key: "date" },
-    { label: "플랫폼", key: "platform" },
-    { label: "광고소재", key: "creative" },
-    { label: "광고비", key: "cost" },
-    { label: "노출", key: "impressions" },
-    { label: "클릭수", key: "clicks" },
+    {
+      label: (
+        <span onClick={handleSortByDate} style={{ cursor: 'pointer' }}>
+      Date {sortConfig.key === "date" ? (sortConfig.direction === "asc" ? "🔽" : "🔼") : "🔽"}
+    </span>
+      ),
+      key: "date"
+    },
+    { label: "Platform", key: "platform" },
+    { label: "Creative", key: "creative" },
+    { label: "Cost", key: "cost" },
+    { label: "impressions", key: "impressions" },
+    { label: "Clicks", key: "clicks" },
     { label: "CTR", key: "CTR" },
-    { label: "회원가입", key: "signups" },
-    { label: "코멘트", key: "comment" },
+    { label: "CPA", key: "signups" },
+    { label: "Comment", key: "comment" }
   ];
 
   return (
@@ -285,23 +325,24 @@ function Dashboard() {
   </div>
 </div>
 
-      <div style={{ marginBottom: 12 }}>
+    <div style={{ marginBottom: 12 }}>
       {defaultMetrics.map((metric) => (
-      <label key={metric} style={{ marginRight: "12px" }}>
-      <input
-      type="checkbox"
-      checked={visibleGraphMetrics.includes(metric)}
-      onChange={() =>
-        setVisibleGraphMetrics((prev) =>
-          prev.includes(metric)
-            ? prev.filter((m) => m !== metric)
-            : [...prev, metric]
+       <label key={metric.key} style={{ marginRight: "12px" }}>
+        <input
+         type="checkbox"
+         checked={visibleGraphMetrics.includes(metric.key)}
+         onChange={() =>
+          setVisibleGraphMetrics((prev) =>
+           prev.includes(metric.key)
+            ? prev.filter((m) => m !== metric.key)
+            : [...prev, metric.key]
         )
       }
-    /> {metric}
+      />{" "}
+     {metric.key}
   </label>
 ))}
-      </div>
+</div>
       <ResponsiveContainer width="100%" height={300}>
         <ComposedChart data={getDateAggregatedData()}>
           <CartesianGrid strokeDasharray="3 3" />
@@ -311,9 +352,16 @@ function Dashboard() {
           <Tooltip formatter={(value) => formatNumber(value)} />
           <Legend />
           {defaultMetrics.map((metric, idx) => (
-            <Bar key={idx} yAxisId="left" dataKey={metric} barSize={20} fill={"#8884d8"} name={metric} hide={!visibleGraphMetrics.includes(metric)}/>
+            <Bar 
+             key={idx} 
+             yAxisId="left" 
+             dataKey={metric.key} 
+             barSize={20} 
+             fill={metric.color} 
+             name={metric.key} 
+             hide={!visibleGraphMetrics.includes(metric.key)}/>
           ))}
-          <Line yAxisId="right" type="monotone" dataKey="signups" stroke="#ff7300" name="회원가입" />
+          <Line yAxisId="right" type="monotone" dataKey="signups" stroke="#ff7300" name="CPA" />
         </ComposedChart>
       </ResponsiveContainer>
 
@@ -328,15 +376,16 @@ function Dashboard() {
           </tr>
         </thead>
         <tbody>
-          {filteredSortedData.map((item, i) => (
-            <tr key={i}>
-
-              <td style={{ textAlign: "center", height: "40px", padding: 0, width: "40px" }}>
+         {filteredSortedData
+          .slice(startIndex, startIndex + itemsPerPage)
+          .map((item, i) => (
+            <tr key={startIndex + i}>
+            <td style={{ textAlign: "center", height: "40px", padding: 0, width: "40px" }}>
                 <input
                   type="checkbox"
-                      checked={selectedRows.includes(i)}
-                      onChange={() => handleRowSelect(i)}
-                      style={{ transform: "scale(1.2)" }} // 💡 보기 좋게 키워도 OK
+                  checked={selectedRows.includes(item.id)}
+                  onChange={() => handleRowSelect(item.id)}
+                  style={{ transform: "scale(1.2)" }} // 💡 보기 좋게 키워도 OK
                 />
               </td>
               {columnDefs.map(({ key }) => {
@@ -356,8 +405,7 @@ function Dashboard() {
                         onBlur={(e) => {
                           handleCellChange("date", e.target.value, i);
                           // setEditingDateIndex(null); <-- 이제 외부 클릭에서 처리됨
-                        }}
-                        onBlur={() => {
+                       
                           setEditingDateIndex(null);
                         }}
           autoFocus
@@ -424,45 +472,79 @@ function Dashboard() {
           ))}
         </tbody>
       </table>
+      <div style={{ marginTop: 16, textAlign: 'center' }}>
+  {Array.from({ length: Math.ceil(filteredSortedData.length / itemsPerPage) }, (_, i) => (
+    <button
+      key={i + 1}
+      onClick={() => setCurrentPage(i + 1)}
+      style={{
+        margin: '0 4px',
+        padding: '6px 12px',
+        fontWeight: currentPage === i + 1 ? 'bold' : 'normal',
+        backgroundColor: currentPage === i + 1 ? '#f0f0f0' : 'white',
+        border: '1px solid #ccc',
+        borderRadius: '4px',
+        cursor: 'pointer',
+      }}
+    >
+      {i + 1}
+    </button>
+  ))}
+</div>
 
       <div style={{ marginTop: 12 }}>
-      <button className="btn-add" onClick={handleAddRow}>+ 행 추가</button>
+      <button className="btn-add" onClick={() => setIsModalOpen(true)}>+ 행 추가</button>
       <button className="btn-delete" onClick={handleDelete}>🗑 선택 삭제</button>
       </div>
 
       <h3 style={{ marginTop: 40 }}>📊 플랫폼별 집계</h3>
-      <div style={{ marginBottom: "20px" }}>
-      {["cost", "impressions", "clicks"].map((metric) => (
-  <label key={metric} style={{ marginRight: "12px" }}>
-    <input
-      type="checkbox"
-      checked={selectedPlatformMetrics.includes(metric)}
-      onChange={() =>
-        setSelectedPlatformMetrics((prev) =>
-          prev.includes(metric)
-            ? prev.filter((m) => m !== metric)
-            : [...prev, metric]
-        )
-      }
-    />{" "}
-    {metric}
-  </label>
-))}
-      </div>
+<div style={{ marginBottom: "20px" }}>
+  {["cost", "impressions", "clicks"].map((metric) => (
+    <label key={metric} style={{ marginRight: "12px" }}>
+      <input
+        type="checkbox"
+        checked={selectedPlatformMetrics.includes(metric)}
+        onChange={() => {
+          setSelectedPlatformMetrics((prev) =>
+            prev.includes(metric)
+              ? prev.filter((m) => m !== metric)
+              : [...prev, metric]
+
+          );
+        }}
+      />
+      {metric}
+    </label>
+  ))}
+</div>
       <ResponsiveContainer width="100%" height={300}>
-        <ComposedChart data={platformData}>
+        <ComposedChart data={groupBy("platform")}>
           <CartesianGrid strokeDasharray="3 3" />
           <XAxis dataKey="label" />
           <YAxis yAxisId="left" />
           <YAxis yAxisId="right" orientation="right" />
           <Tooltip formatter={(value) => formatNumber(value)} />
           <Legend />
-          {selectedPlatformMetrics.map((metric, idx) => (
-            <Bar key={idx} yAxisId="left" dataKey={metric} barSize={20} fill={"#82ca9d"} name={metric} />
-          ))}
-          <Line yAxisId="right" type="monotone" dataKey="signups" stroke="#ff7300" name="회원가입" />
-        </ComposedChart>
-      </ResponsiveContainer>
+
+          {/* cost 그래프 */}
+    {selectedPlatformMetrics.includes("cost") && (
+      <Bar yAxisId="left" dataKey="cost" barSize={20} fill={platformColors["cost"]} name="Cost" />
+    )}
+    
+    {/* impressions 그래프 */}
+    {selectedPlatformMetrics.includes("impressions") && (
+      <Bar yAxisId="left" dataKey="impressions" barSize={20} fill={platformColors["impressions"]} name="impressions" />
+    )}
+    
+    {/* clicks 그래프 */}
+    {selectedPlatformMetrics.includes("clicks") && (
+      <Bar yAxisId="left" dataKey="clicks" barSize={20} fill={platformColors["clicks"]} name="Clicks" />
+    )}
+    
+    {/* CPA line graph */}
+    <Line yAxisId="right" type="monotone" dataKey="signups" stroke="#ff7300" name="CPA" />
+  </ComposedChart>
+</ResponsiveContainer>
 
       <h3 style={{ marginTop: 40 }}>🎨 광고소재별 집계</h3>
       <div style={{ marginBottom: "20px" }}>
@@ -491,13 +573,106 @@ function Dashboard() {
           <YAxis yAxisId="right" orientation="right" />
           <Tooltip formatter={(value) => formatNumber(value)} />
           <Legend />
+         
           {selectedCreativeMetrics.map((metric, idx) => (
-            <Bar key={idx} yAxisId="left" dataKey={metric} barSize={20} fill={"#ffc658"} name={metric} />
+            <Bar key={idx} yAxisId="left" dataKey={metric} barSize={20} fill={platformColors[metric]} name={metric} />
           ))}
-          <Line yAxisId="right" type="monotone" dataKey="signups" stroke="#ff7300" name="회원가입" />
+          <Line yAxisId="right" type="monotone" dataKey="signups" stroke="#ff7300" name="CPA" />
         </ComposedChart>
       </ResponsiveContainer>
+    
+    {isModalOpen && (
+      <div className="modal-overlay">
+        <div className="modal">
+          <h3>📋 새 데이터 입력</h3>
+    {/* 1행: date / platform / creative */}
+  <div className="input-row">
+    <div className="field">
+      <label>date</label>
+      <input
+        type="date"
+        value={newRowData.date}
+        onChange={(e) => setNewRowData({ ...newRowData, date: e.target.value })}
+      />
     </div>
+    <div className="field">
+      <label>platform</label>
+      <input
+        type="text"
+        value={newRowData.platform}
+        onChange={(e) => setNewRowData({ ...newRowData, platform: e.target.value })}
+      />
+    </div>
+    <div className="field">
+      <label>creative</label>
+      <input
+        type="text"
+        value={newRowData.creative}
+        onChange={(e) => setNewRowData({ ...newRowData, creative: e.target.value })}
+      />
+    </div>
+  </div>
+
+  {/* 2행: cost / impressions / clicks / signups */}
+  <div className="input-row">
+    <div className="field">
+      <label>cost</label>
+      <input
+        type="number"
+        value={newRowData.cost}
+        onChange={(e) => setNewRowData({ ...newRowData, cost: e.target.value })}
+      />
+    </div>
+    <div className="field">
+      <label>impressions</label>
+      <input
+        type="number"
+        value={newRowData.impressions}
+        onChange={(e) => setNewRowData({ ...newRowData, impressions: e.target.value })}
+      />
+    </div>
+    <div className="field">
+      <label>clicks</label>
+      <input
+        type="number"
+        value={newRowData.clicks}
+        onChange={(e) => setNewRowData({ ...newRowData, clicks: e.target.value })}
+      />
+    </div>
+    <div className="field">
+      <label>signups</label>
+      <input
+        type="number"
+        value={newRowData.signups}
+        onChange={(e) => setNewRowData({ ...newRowData, signups: e.target.value })}
+      />
+    </div>
+  </div>
+
+  {/* 3행: comment */}
+  <div className="field" style={{ marginBottom: 16 }}>
+    <label>comment</label>
+    <textarea
+      value={newRowData.comment}
+      onChange={(e) => setNewRowData({ ...newRowData, comment: e.target.value })}
+      rows={3}
+      maxLength={200}
+      style={{ width: "100%" }}
+    />
+  </div>
+
+  {/* 저장/취소 버튼 */}
+  <div style={{ textAlign: "right" }}>
+    <button onClick={handleSave}>저장</button>
+    <button onClick={() => setIsModalOpen(false)} style={{ marginLeft: 8 }}>취소</button>
+  </div>
+
+          
+        </div>
+      </div>
+    )}
+  </div>
+
   );
 }
 
