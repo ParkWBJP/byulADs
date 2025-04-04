@@ -24,4 +24,4 @@ const db = getFirestore(app);
 export { db };
 
 
-console.log("Firebase API Key:", firebaseConfig.apiKey);
+
