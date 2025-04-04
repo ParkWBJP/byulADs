@@ -5,7 +5,7 @@ import { getFirestore } from "firebase/firestore";
 
 // Firebase 설정 (복사한 설정 그대로 사용하면 됩니다!)
 const firebaseConfig = {
-  apiKey: "AIzaSyBiAhM8uYZrbB4d0zYc1IxBu4gaPLS9WnA",
+  apiKey: "REDACTED",
   authDomain: "byulads.firebaseapp.com",
   projectId: "byulads",
   storageBucket: "byulads.firebasestorage.app",
