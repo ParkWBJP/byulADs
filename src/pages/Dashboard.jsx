@@ -22,6 +22,7 @@ const formatNumber = (num) => new Intl.NumberFormat().format(num);
 const getCTR = (clicks, impressions) => (!impressions ? "0%" : ((clicks / impressions) * 100).toFixed(2) + "%");
 
 function Dashboard() {
+  const platformOptions = ["Google", "Meta", "X", "Naver", "Kakao"];
   const platformColors = {
     cost: "#8884d8",  // 파란색
     impressions: "#82ca9d",  // 초록색
@@ -124,22 +125,28 @@ function Dashboard() {
     );
   };
 
-  const handleCellChange = async (key, value, index) => {
-    const updatedData = [...data];
-    updatedData[index][key] = ["cost", "revenue", "clicks", "impressions", "signups"].includes(key)
-      ? Number(value)
-      : value;
+  const handleCellChange = async (key, value, itemId) => {
+    const numericKeys = ["cost", "revenue", "clicks", "impressions", "signups"];
 
+    const updatedData = data.map((row) => {
+      if (row.id === itemId) {
+    return {
+      ...row,
+      [key]: numericKeys.includes(key)
+        ? (isNaN(Number(value)) ? 0 : Number(value))
+        : value,
+    };
+  }
+  return row;
+});
     setData(updatedData);
 
     try {
-      const row = updatedData[index];
-      if (row.id) {
-        const docRef = doc(db, "adData", row.id);
-        await updateDoc(docRef, { [key]: row[key] });
-        console.log(`✅ Firestore 문서 ${row.id} 업데이트됨: ${key} = ${row[key]}`);
-      } else {
-        console.warn("⚠️ 문서 ID 없음 → Firestore 업데이트 불가");
+      const rowToUpdate = updatedData.find((r) => r.id === itemId);
+      if (rowToUpdate) {
+        const docRef = doc(db, "adData", itemId);
+        await updateDoc(docRef, { [key]: rowToUpdate[key] });
+        console.log(`✅ Firestore 문서 ${itemId} 업데이트됨: ${key} = ${rowToUpdate[key]}`);
       }
     } catch (e) {
       console.error("❌ Firestore 업데이트 실패:", e);
@@ -394,77 +401,102 @@ function Dashboard() {
                   val = formatNumber(val);
                 }
                 return (
-                  <td key={key} style={{ textAlign: "center", height: "40px", padding: 0 , width: key === "comment" ? "220px" : "120px" }}>
+                  <td
+                    key={key}
+                    style={{
+                      textAlign: "center",
+                      height: "40px",
+                      padding: 0,
+                      width: key === "comment" ? "220px" : "120px",
+                    }}
+                  >
                     {key === "date" ? (
                       editingDateIndex === i ? (
                         <input
-                        type="date"
-                        ref={dateInputRef}
-                        value={item.date}
-                        onChange={(e) => handleCellChange("date", e.target.value, i)} 
-                        onBlur={(e) => {
-                          handleCellChange("date", e.target.value, i);
-                          // setEditingDateIndex(null); <-- 이제 외부 클릭에서 처리됨
-                       
-                          setEditingDateIndex(null);
+                          type="date"
+                          ref={dateInputRef}
+                          value={item.date}
+                          onChange={(e) => handleCellChange("date", e.target.value, i)}
+                          onBlur={(e) => {
+                            handleCellChange("date", e.target.value, i);
+                            setEditingDateIndex(null);
+                          }}
+                          autoFocus
+                          style={{
+                            width: "100%",
+                            height: "100%",
+                            fontSize: "14px",
+                            padding: "6px",
+                            border: "none",
+                            boxSizing: "border-box",
+                            textAlign: "center",
+                            backgroundColor: "#fff",
+                            outline: "none",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                          }}
+                        />
+                      ) : (
+                        <div
+                          onClick={() => setEditingDateIndex(i)}
+                          style={{
+                            cursor: "pointer",
+                            padding: "6px",
+                            fontSize: "14px",
+                            height: "100%",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                          }}
+                        >
+                          {item.date}
+                        </div>
+                      )
+                    ) : key === "comment" ? (
+                      <textarea
+                        value={item.comment}
+                        onChange={(e) => handleCellChange("comment", e.target.value, i)}
+                        maxLength={200}
+                        style={{
+                          width: "100%",
+                          minHeight: "60px",
+                          resize: "none",
+                          fontSize: "14px",
+                          padding: "6px",
+                          border: "1px solid #ccc",
+                          borderRadius: "6px",
+                          boxSizing: "border-box",
                         }}
-          autoFocus
-          style={{
-            width: "100%",
-            height: "100%",
-            fontSize: "14px",
-            padding: "6px",
-            border: "none",
-            boxSizing: "border-box",
-            textAlign: "center",
-            backgroundColor: "#fff",
-            outline: "none",
-            overflow: "hidden",         // ✅ 핵심: 내용 넘치지 않게
-            textOverflow: "ellipsis",
-          }}
-        />
-      ) : (
-        <div
-        onClick={() => setEditingDateIndex(i)}
-        style={{
-          cursor: "pointer",
-          padding: "6px",
-          fontSize: "14px",
-          height: "100%",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        {item.date}
-      </div>
-      )
-      ) : key === "comment" ? (
-        <textarea
-          value={item.comment}
-          onChange={(e) => handleCellChange("comment", e.target.value, i)}
-          maxLength={200}
-          style={{   
-            width: "100%",
-            minHeight: "60px",
-            resize: "none",
-            fontSize: "14px",
-            padding: "6px",
-            border: "1px solid #ccc",
-            borderRadius: "6px",
-            boxSizing: "border-box", }}
-        />
-      ) : (
-                    
-                    <div
-                      contentEditable
-                      suppressContentEditableWarning
-                      onBlur={(e) =>
-                        handleCellChange(key, e.target.innerText.replace(/,/g, ""), i)
-                      }
-                      dangerouslySetInnerHTML={{ __html: val }}
-                    />
-                  )}
+                      />
+                    ) : key === "platform" ? (
+                      <select
+                        value={item.platform || ""}
+                        onChange={(e) => handleCellChange("platform", e.target.value, item.id)}
+                        style={{
+                          width: "100%",
+                          padding: "6px",
+                          fontSize: "14px",
+                          border: "1px solid #ccc",
+                          borderRadius: "6px",
+                          backgroundColor: "#fafafa",
+                        }}
+                      >
+                        {platformOptions.map((option) => (
+                          <option key={option} value={option}>
+                            {option}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <div
+                        contentEditable
+                        suppressContentEditableWarning
+                        onBlur={(e) =>
+                          handleCellChange(key, e.target.innerText.replace(/,/g, ""), item.id)
+                        }
+                        dangerouslySetInnerHTML={{ __html: val }}
+                      />
+                    )}
                   </td>
                 );
               })}
@@ -596,12 +628,19 @@ function Dashboard() {
       />
     </div>
     <div className="field">
-      <label>platform</label>
-      <input
-        type="text"
-        value={newRowData.platform}
-        onChange={(e) => setNewRowData({ ...newRowData, platform: e.target.value })}
-      />
+    <label htmlFor="platform-select">platform</label>  {/* ✅ label 추가 */}
+    <select
+    value={newRowData.platform}
+    onChange={(e) => setNewRowData({ ...newRowData, platform: e.target.value })}
+    style={{ width: "100%", padding: "8px", fontSize: "14px", border: "1px solid #ccc", borderRadius: "6px" }}
+    >
+    <option value="">선택하세요</option>
+    {platformOptions.map((option) => (
+      <option key={option} value={option}>
+        {option}
+      </option>
+    ))}
+  </select>
     </div>
     <div className="field">
       <label>creative</label>
